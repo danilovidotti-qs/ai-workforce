@@ -1,0 +1,78 @@
+services:
+  # ── LiteLLM Proxy ────────────────────────────────────────────────────────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+    env_file:
+      - .env
+    command: --config /app/config.yaml --port 4000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4000/health/liveliness"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── LangGraph Orchestrator ───────────────────────────────────────────────────
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/src
+      - ${PROJECTS_DIR:-./projects}:/projects  # set PROJECTS_DIR in .env
+      - orchestrator-data:/app/data             # SQLite run state
+    env_file:
+      - .env
+    environment:
+      - LITELLM_BASE_URL=http://litellm:4000
+    depends_on:
+      - litellm
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── Langfuse (optional — enable with: docker compose --profile observability up) ──
+  langfuse:
+    image: langfuse/langfuse:latest
+    profiles: [observability]
+    ports:
+      - "3001:3000"
+    environment:
+      - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      - NEXTAUTH_SECRET=change-me-in-production
+      - NEXTAUTH_URL=http://localhost:3001
+      - SALT=change-me-in-production
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/public/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  langfuse-db:
+    image: postgres:15
+    profiles: [observability]
+    environment:
+      - POSTGRES_USER=langfuse
+      - POSTGRES_PASSWORD=langfuse
+      - POSTGRES_DB=langfuse
+    volumes:
+      - langfuse-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  orchestrator-data:
+  langfuse-db-data:

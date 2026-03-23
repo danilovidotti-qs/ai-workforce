@@ -1,0 +1,17 @@
+[project]
+name = "ai-workforce"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-core>=0.3.0",
+    "python-dotenv>=1.0.0",
+    "langfuse>=2.0.0",           # observability
+    "langchain-community>=0.3.0", # file & shell tools
+    "gitpython>=3.1.40",         # git worktree operations
+    "fastapi>=0.110.0",          # orchestrator API
+    "uvicorn>=0.29.0",           # ASGI server
+]

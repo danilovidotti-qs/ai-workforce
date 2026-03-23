@@ -1,0 +1,79 @@
+model_list:
+  # ── Default role assignments ────────────────────────────────────────────────
+  # These aliases are used by the pipeline roles in src/agents.py.
+  # Override which model a role uses via MODEL_* env vars in .env
+
+  # - model_name: scanner # Scanning: project structure analysis (local)
+  #   litellm_params:
+  #     model: ollama/qwen2.5-coder:7b
+  #     api_base: http://host.docker.internal:11434
+
+  # - model_name: architect # Planning: task decomposition
+  #   litellm_params:
+  #     model: codex-5.4
+  #     api_key: os.environ/OPENAI_API_KEY
+
+  # - model_name: worker # Coding: writes files via tools
+  #   litellm_params:
+  #     model: codex-5.2
+  #     api_key: os.environ/OPENAI_API_KEY
+
+  # # - model_name: worker # Coding: writes files via tools
+  # #   litellm_params:
+  # #     model: anthropic/claude-sonnet-4-5
+  # #     api_key: os.environ/ANTHROPIC_API_KEY
+
+  # - model_name: reviewer # Review: approves or rejects diffs
+  #   litellm_params:
+  #     model: gemini/gemini-2.5-flash
+  #     api_key: os.environ/GEMINI_API_KEY
+
+  # ── Available models (use with MODEL_* env vars) ───────────────────────────
+  # To use any of these for a role, set e.g. MODEL_WORKER=ollama-local in .env
+
+  - model_name: claude-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: codex
+    litellm_params:
+      model: codex-5.4
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: codex-5.2
+    litellm_params:
+      model: gpt-5.2-codex
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: gemini-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: ollama-local
+    litellm_params:
+      model: ollama/qwen2.5-coder:7b
+      api_base: http://host.docker.internal:11434
+
+router_settings:
+  routing_strategy: least-busy
+  fallbacks:
+    - scanner: [claude-sonnet]
+    - architect: [claude-sonnet]
+    - worker: [codex]
+    - reviewer: [claude-sonnet]
+
+litellm_settings:
+  success_callback: ["langfuse"]
+  failure_callback: ["langfuse"]
