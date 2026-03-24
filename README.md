@@ -44,6 +44,123 @@ Task submitted via Web UI or API
 
 LiteLLM acts as a proxy, routing to any provider (Anthropic, Google, Ollama). Models are swappable via config — no code changes needed.
 
+### Component Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                        Web UI / API                              │
+│                   FastAPI + SSE streaming                        │
+│                     (localhost:8000)                              │
+└──────────────────────────┬───────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                     LangGraph Engine                             │
+│                                                                  │
+│  ┌─────────┐   ┌───────────┐   ┌────────┐   ┌────────┐         │
+│  │ Scanner │──▶│ Architect │──▶│ Assign │──▶│ Worker │──┐      │
+│  └─────────┘   └───────────┘   └────────┘   └────────┘  │      │
+│                      ▲                           │       │      │
+│                      │ supervised                ▼       │      │
+│                 ┌─────────┐              ┌──────────┐    │      │
+│                 │  Human  │              │ Review   │◀───┘      │
+│                 │ approval│              │ (≤3 rds) │           │
+│                 └─────────┘              └────┬─────┘           │
+│                                               │                  │
+│                                               ▼                  │
+│                                          ┌─────────┐            │
+│                                          │  Merge  │            │
+│                                          └─────────┘            │
+└──────────────────────────┬───────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                     LiteLLM Proxy                                │
+│              Unified API (localhost:4000)                         │
+│         Routing · Fallbacks · Load Balancing                     │
+│                                                                  │
+│   ┌───────────┐  ┌────────┐  ┌────────┐  ┌───────────────┐     │
+│   │ Anthropic │  │ OpenAI │  │ Google │  │ Ollama (local)│     │
+│   │  Claude   │  │ Codex  │  │ Gemini │  │ qwen2.5-coder │     │
+│   └───────────┘  └────────┘  └────────┘  └───────────────┘     │
+└──────────────────────────┬───────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                   Observability (optional)                        │
+│             Langfuse — traces, tokens, cost                      │
+│              (cloud or self-hosted)                               │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### State Machine (LangGraph)
+
+The pipeline is a compiled LangGraph state machine with conditional edges:
+
+```
+scanner_scan ──▶ architect_plan ──▶ lead_dev_assign
+                                         │
+                          ┌──────────────┤
+                          │              │
+                     overlap?        no overlap?
+                          │              │
+                          ▼              ▼
+                   execute_sequential  execute_worker (parallel)
+                          │              │
+                          └──────┬───────┘
+                                 ▼
+                          lead_dev_review
+                                 │
+                          ┌──────┴──────┐
+                          │             │
+                     approved?    feedback + rounds < 3?
+                          │             │
+                          ▼             ▼
+                    lead_dev_merge   back to execute
+```
+
+Three graph variants are exposed:
+- **`plan_graph`** — Scanner + Architect only (planning phase)
+- **`exec_graph`** — Assign + Execute + Review + Merge (execution phase)
+- **`full_graph`** — All phases combined (used in Auto mode)
+
+### Overlap Detection & Execution Strategy
+
+The Architect predicts which files each subtask will touch. The Lead Dev checks for overlap:
+
+| Scenario | Strategy | Worktrees | Execution |
+| --- | --- | --- | --- |
+| No shared files | Parallel | One per subtask | All workers run concurrently |
+| Shared files detected | Sequential | Single shared | One worker at a time, in order |
+
+This prevents write conflicts — two agents never modify the same file simultaneously.
+
+### Safety Mechanisms
+
+Multiple safeguards prevent destructive changes:
+
+- **Filesystem sandbox** — Workers can only access files inside their assigned worktree. Path traversal is blocked.
+- **Pre-commit validation** — Before committing, diffs are checked:
+  - File count drop > 50% → abort
+  - Line count drop > 50% → abort
+  - Majority of files have only deletions → abort
+  - Large deletions (>100 lines) with zero additions → abort
+- **Pre-merge validation** — Same checks run again before merging to main
+- **Review loop** — An independent reviewer model checks every diff. Up to 3 revision rounds before merge.
+- **Worktree cleanup** — Branches and worktree directories are always cleaned up, even on failure or cancellation.
+
+### Persistence & Resumability
+
+Run state is serialized to SQLite after each phase transition:
+
+```
+Run started → [scanner] → save → [architect] → save → ... → [merge] → save → done
+                                                  ↑
+                                            resume from here
+```
+
+If a run fails or is stopped, it can be resumed from the last saved checkpoint. Stale worktrees are cleaned up automatically on resume.
+
 ---
 
 ## Execution Modes
