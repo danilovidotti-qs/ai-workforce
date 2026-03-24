@@ -47,7 +47,6 @@ def make_llm(model_name: str) -> ChatOpenAI:
         model=model_name,
         base_url=LITELLM_BASE,
         api_key=LITELLM_KEY,
-        temperature=0.2,
         model_kwargs={"metadata": {"role": model_name}},
     )
 
