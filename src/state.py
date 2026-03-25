@@ -1,3 +1,4 @@
+from operator import or_
 from typing import Annotated, Literal
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
@@ -21,6 +22,14 @@ class WorktreeInfo(TypedDict):
     diff_summary: str                # populated after work is done
 
 
+def _replace_by_id(existing: list[dict], updates: list[dict]) -> list[dict]:
+    """Reducer: merge two lists of dicts by 'id', updates overwrite existing."""
+    merged = {item["id"]: item for item in existing}
+    for item in updates:
+        merged[item["id"]] = item
+    return list(merged.values())
+
+
 class AgentState(TypedDict):
     # ── Core task info ──
     project: str
@@ -38,15 +47,15 @@ class AgentState(TypedDict):
     # ── Execution mode ──
     mode: Literal["auto", "supervised"]  # auto = run through, supervised = pause after plan
 
-    # ── Pipeline state ──
-    subtasks: list[Subtask]
-    worktrees: list[WorktreeInfo]
+    # ── Pipeline state (reducers allow concurrent updates from parallel workers) ──
+    subtasks: Annotated[list[Subtask], _replace_by_id]
+    worktrees: Annotated[list[WorktreeInfo], _replace_by_id]
     overlap_detected: bool           # True = subtasks share files → sequential
 
     # ── Review loop ──
-    review_feedback: dict[str, str]  # worktree_id -> feedback (empty = approved)
+    review_feedback: Annotated[dict[str, str], or_]  # worktree_id -> feedback
     review_round: int                # current review iteration (max 3)
 
     # ── Results ──
-    merge_results: dict[str, str]    # worktree_id -> "success" | error
+    merge_results: Annotated[dict[str, str], or_]  # worktree_id -> "success" | error
     final_output: str

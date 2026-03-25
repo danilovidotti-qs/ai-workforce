@@ -47,7 +47,7 @@ def make_llm(model_name: str) -> ChatOpenAI:
         model=model_name,
         base_url=LITELLM_BASE,
         api_key=LITELLM_KEY,
-        model_kwargs={"metadata": {"role": model_name}},
+        metadata={"role": model_name},
     )
 
 
@@ -361,22 +361,17 @@ async def execute_worker(state: AgentState) -> dict:
         f"feat({wt_id}): {state['task'][:50]}",
     )
 
-    # Update subtask statuses
-    updated_subtasks = list(state["subtasks"])
-    for s in updated_subtasks:
+    # Update only the subtasks belonging to this worktree
+    updated_subtasks = []
+    for s in state["subtasks"]:
         if s["assigned_worktree"] == wt_id:
-            s["status"] = "done"
-            s["result"] = output
+            updated_subtasks.append({**s, "status": "done", "result": output})
 
-    # Get diff for review
+    # Get diff for review — return only this worktree
     diff = await async_get_diff(worktree["path"])
-    updated_worktrees = list(state["worktrees"])
-    for wt in updated_worktrees:
-        if wt["id"] == wt_id:
-            wt["status"] = "review"
-            wt["diff_summary"] = diff
+    updated_worktree = {**worktree, "status": "review", "diff_summary": diff}
 
-    return {"subtasks": updated_subtasks, "worktrees": updated_worktrees}
+    return {"subtasks": updated_subtasks, "worktrees": [updated_worktree]}
 
 
 # ── Phase 3b: Sequential execution (when subtasks overlap) ───────────────────

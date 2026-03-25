@@ -4,6 +4,28 @@ import os
 import uuid
 from pathlib import Path
 
+# Disable OpenTelemetry SDK — it crashes when LangGraph runs parallel async nodes
+# because ContextVar tokens get created/reset across different async contexts.
+# Langfuse has its own tracing and does not need the OTEL SDK.
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+
+# Defensive patch: suppress the ContextVar ValueError if OTEL is still active
+# (e.g. imported before the env var takes effect)
+try:
+    from opentelemetry.context.contextvars_context import ContextVarsRuntimeContext
+
+    _original_detach = ContextVarsRuntimeContext.detach
+
+    def _safe_detach(self, token):
+        try:
+            _original_detach(self, token)
+        except ValueError:
+            pass
+
+    ContextVarsRuntimeContext.detach = _safe_detach
+except ImportError:
+    pass
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
